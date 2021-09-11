@@ -994,23 +994,21 @@ where
 
 /// Applies a parser until it fails while passing through a value.
 /// TODO
-pub fn pass_through_many0<Input, Output, Error, ParserConstructor, ParserType>(
-  parser_constructor: ParserConstructor,
+pub fn pass_through_many0<Input, Output, IntermediateOutput, Error, ParserType>(
+  parser: ParserType,
   initial_value: Output,
-) -> impl FnOnce(Input) -> IResult<Input, Output, Error>
+) -> impl FnOnce(Input) -> nom::IResult<Input, Output, Error>
   where
       Input: Clone + InputLength,
       Error: ParseError<Input>,
-      ParserConstructor: Fn(Output) -> ParserType,
-      ParserType: Parser<Input, Output, (Error, Output)>,
+      ParserType: Fn(Input, Output) -> (nom::IResult<Input, IntermediateOutput, Error>, Output),
 {
   move |mut input: Input| {
     let mut current_value = initial_value;
 
     loop {
-      let mut parser = parser_constructor(current_value);
-      match parser.parse(input.clone()) {
-        Ok((processed_input, processed_value)) => {
+      match parser(input.clone(), current_value) {
+        (Ok((processed_input, _)), processed_value) => {
           // infinite loop check: the parser must always consume
           if processed_input.input_len() == input.input_len() {
             return Err(Err::Error(Error::from_error_kind(input, ErrorKind::Many0)));
@@ -1019,11 +1017,11 @@ pub fn pass_through_many0<Input, Output, Error, ParserConstructor, ParserType>(
           input = processed_input;
           current_value = processed_value;
         }
-        Err(Err::Error((_, current_value))) => {
-          return Ok((input, current_value));
+        (Err(Err::Error(_)), processed_value) => {
+          return Ok((input, processed_value));
         }
-        Err(e) => {
-          return Err(e.map(|(error, _)| error));
+        (Err(e), _) => {
+          return Err(e);
         }
       }
     }
